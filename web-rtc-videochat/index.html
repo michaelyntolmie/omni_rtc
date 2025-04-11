@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>WebRTC Video Chat</title>
+  <title>WebRTC One-Way Video Chat</title>
 </head>
 <body>
-  <h1>WebRTC Video Chat</h1>
+  <h1>WebRTC One-Way Video Chat</h1>
 
   <video id="localVideo" autoplay playsinline muted></video>
   <video id="remoteVideo" autoplay playsinline></video>
@@ -12,48 +12,48 @@
   <button onclick="startCall()">Start Call</button>
 
   <script>
-    // ==== 1. Open Webcam ====
     const localVideo = document.getElementById('localVideo');
     const remoteVideo = document.getElementById('remoteVideo');
     let localStream;
     let socket;
     let peerConnection;
-    const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }; // Helps find the best way to connect
-  
+    const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }; // Helps with NAT traversal
+
+    const room = prompt("Enter room name:");       // Ask for room
+    const isSender = confirm("Are you the sender?"); // Ask if sending video
+
     async function start() {
       try {
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        localVideo.srcObject = localStream;
         console.log('Camera and microphone open!');
+        if (isSender) {
+          localVideo.srcObject = localStream; // Show your own video only if sender
+        } else {
+          localVideo.style.display = 'none'; // Hide local video if receiver
+        }
       } catch (error) {
         console.error('Error opening camera.', error);
       }
-  
-      // ==== 2. Connect to WebSocket Server ====
-      const room = prompt("Enter room name:");
+
       socket = new WebSocket('ws://localhost:3000/' + room);
 
-  
       socket.onopen = () => {
         console.log('Connected to signaling server');
         createPeerConnection();
       };
-  
+
       socket.onmessage = async (event) => {
         const data = JSON.parse(event.data);
         console.log('Got message:', data);
-  
+
         if (data.offer) {
-          // Got an offer, set it and send an answer
           await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
           const answer = await peerConnection.createAnswer();
           await peerConnection.setLocalDescription(answer);
           socket.send(JSON.stringify({ answer }));
         } else if (data.answer) {
-          // Got an answer, set it
           await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
         } else if (data.candidate) {
-          // Got a new ICE candidate
           try {
             await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
           } catch (e) {
@@ -62,41 +62,38 @@
         }
       };
     }
-  
-    // ==== 3. Create PeerConnection ====
+
     function createPeerConnection() {
       peerConnection = new RTCPeerConnection(servers);
-  
-      // Add local stream tracks to the connection
-      localStream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, localStream);
-      });
-  
-      // Handle incoming tracks (remote video)
+
+      if (isSender) {
+        localStream.getTracks().forEach(track => {
+          peerConnection.addTrack(track, localStream);
+        });
+      }
+
       peerConnection.ontrack = (event) => {
         remoteVideo.srcObject = event.streams[0];
       };
-  
-      // Handle ICE candidates
+
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
           socket.send(JSON.stringify({ candidate: event.candidate }));
         }
       };
-  
+
       console.log('PeerConnection created!');
     }
-  
-    // ==== 4. Button to Start Call ====
+
     async function startCall() {
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      socket.send(JSON.stringify({ offer }));
+      if (isSender) {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.send(JSON.stringify({ offer }));
+      }
     }
-  
-    window.startCall = startCall;
-  
+
     start();
-  </script>  
+  </script>
 </body>
 </html>

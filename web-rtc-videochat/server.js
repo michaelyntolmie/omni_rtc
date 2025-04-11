@@ -13,15 +13,14 @@ wss.on('connection', (ws, req) => {
   console.log(`New client connected to room: ${roomName}`);
 
   ws.on('message', (message) => {
-    console.log('Received message:', message);
-
-    // Send to everyone else in the same room
+    const text = message.toString(); // <-- ADD THIS LINE
     rooms[roomName].forEach(client => {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(message);
+        client.send(text); // <-- SEND text, not Buffer!
       }
     });
   });
+  
 
   ws.on('close', () => {
     console.log('Client disconnected');
