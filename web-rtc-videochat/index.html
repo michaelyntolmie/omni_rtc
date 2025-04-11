@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>WebRTC One-Way Video Chat</title>
+  <title>WebRTC One-Way Video Chat (with TURN)</title>
 </head>
 <body>
   <h1>WebRTC One-Way Video Chat</h1>
 
-  <video id="localVideo" autoplay playsinline muted></video>
-  <video id="remoteVideo" autoplay playsinline></video>
+  <video id="localVideo" autoplay playsinline muted style="width: 45%;"></video>
+  <video id="remoteVideo" autoplay playsinline style="width: 45%;"></video>
 
   <button onclick="startCall()">Start Call</button>
 
@@ -17,50 +17,65 @@
     let localStream;
     let socket;
     let peerConnection;
-    const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }; // Helps with NAT traversal
 
-    const room = prompt("Enter room name:");       // Ask for room
-    const isSender = confirm("Are you the sender?"); // Ask if sending video
+    // ✅ STUN + TURN server configuration
+    const servers = {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        {
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        }
+      ]
+    };
+
+    const room = prompt("Enter room name:");
+    const isSender = confirm("Are you the sender?");
+    const signalingServerURL = 'ws://209.38.75.43:3000/' + room;
+
+    console.log('Connecting to signaling server at', signalingServerURL);
+    socket = new WebSocket(signalingServerURL);
+
+    socket.onopen = () => {
+      console.log('Connected to signaling server');
+      createPeerConnection();
+    };
+
+    socket.onmessage = async (event) => {
+      const data = JSON.parse(event.data);
+      console.log('Got message:', data);
+
+      if (data.offer) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        socket.send(JSON.stringify({ answer }));
+      } else if (data.answer) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+      } else if (data.candidate) {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } catch (e) {
+          console.error('Error adding received ice candidate', e);
+        }
+      }
+    };
 
     async function start() {
       try {
+        // 1. Open camera first
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         console.log('Camera and microphone open!');
+
         if (isSender) {
-          localVideo.srcObject = localStream; // Show your own video only if sender
+          localVideo.srcObject = localStream;
         } else {
-          localVideo.style.display = 'none'; // Hide local video if receiver
+          localVideo.style.display = 'none'; // Receiver hides their local video
         }
       } catch (error) {
-        console.error('Error opening camera.', error);
+        console.error('Error accessing media devices.', error);
       }
-
-      socket = new WebSocket('ws://localhost:3000/' + room);
-
-      socket.onopen = () => {
-        console.log('Connected to signaling server');
-        createPeerConnection();
-      };
-
-      socket.onmessage = async (event) => {
-        const data = JSON.parse(event.data);
-        console.log('Got message:', data);
-
-        if (data.offer) {
-          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-          const answer = await peerConnection.createAnswer();
-          await peerConnection.setLocalDescription(answer);
-          socket.send(JSON.stringify({ answer }));
-        } else if (data.answer) {
-          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-        } else if (data.candidate) {
-          try {
-            await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-          } catch (e) {
-            console.error('Error adding received ice candidate', e);
-          }
-        }
-      };
     }
 
     function createPeerConnection() {
@@ -68,11 +83,13 @@
 
       if (isSender) {
         localStream.getTracks().forEach(track => {
+          console.log('Adding track:', track.kind);
           peerConnection.addTrack(track, localStream);
         });
       }
 
       peerConnection.ontrack = (event) => {
+        console.log('Received remote track!');
         remoteVideo.srcObject = event.streams[0];
       };
 
@@ -93,6 +110,7 @@
       }
     }
 
+    // Start getting media immediately
     start();
   </script>
 </body>

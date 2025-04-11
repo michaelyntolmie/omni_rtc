@@ -1,10 +1,10 @@
 const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 3000 });
+const wss = new WebSocket.Server({ port: 3000, host: '0.0.0.0' });
 
 const rooms = {};
 
 wss.on('connection', (ws, req) => {
-  const roomName = req.url.slice(1); // take "/room1" and make "room1"
+  const roomName = req.url.slice(1);
   if (!rooms[roomName]) {
     rooms[roomName] = [];
   }
@@ -13,18 +13,16 @@ wss.on('connection', (ws, req) => {
   console.log(`New client connected to room: ${roomName}`);
 
   ws.on('message', (message) => {
-    const text = message.toString(); // <-- ADD THIS LINE
     rooms[roomName].forEach(client => {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(text); // <-- SEND text, not Buffer!
+        client.send(message);
       }
     });
   });
-  
 
   ws.on('close', () => {
-    console.log('Client disconnected');
-    // Remove from room
     rooms[roomName] = rooms[roomName].filter(client => client !== ws);
+    console.log('Client disconnected');
   });
 });
+
